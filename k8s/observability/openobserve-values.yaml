@@ -1,0 +1,60 @@
+# Values for the `openobserve/openobserve-standalone` chart (single-node OpenObserve,
+# not the HA/distributed chart). Installed with:
+#   helm upgrade --install openobserve openobserve/openobserve-standalone \
+#     --version 0.92.2 --namespace observability -f k8s/observability/openobserve-values.yaml
+#
+# Release name "openobserve" + chart name "openobserve-standalone" resolve (via the
+# chart's fullname template) to plain "openobserve" for every object name, so the
+# Service is reachable at openobserve.observability.svc.cluster.local:5080.
+
+nameOverride: "openobserve"
+
+# Local kind-cluster development credentials only - do not reuse these values
+# outside a disposable local cluster. k8s/observability/openobserve-prometheus-secret.yaml
+# must be kept in sync with these for Prometheus remote_write to authenticate.
+auth:
+  ZO_ROOT_USER_EMAIL: "root@example.com"
+  ZO_ROOT_USER_PASSWORD: "Complexpass#123"
+
+nodeSelector:
+  workload: openobserve
+
+# The chart's default (3650 days) keeps data forever. Kind's default StorageClass
+# (rancher.io/local-path) does not enforce persistence.size below as a real quota - it
+# just writes to the node's underlying disk (Docker Desktop's VM disk) - so unbounded
+# retention plus any wider-scoped remote_write (e.g. cAdvisor/node-exporter ops metrics)
+# risks growing disk usage indefinitely. A few days is plenty for a local dev cluster.
+config:
+  ZO_COMPACT_DATA_RETENTION_DAYS: "3"
+  # Off by default - with it off, /metrics (self-monitoring: ingestion rate, HTTP request
+  # latency, compactor, cache) returns 200 with an empty body, confirmed live.
+  ZO_PROMETHEUS_ENABLED: "true"
+
+# Bumped from 250m/512Mi (req) & 1/1Gi (limit) when remote_write was widened beyond just
+# the message-service's own metrics to also carry cluster ops metrics (node-exporter,
+# kube-state-metrics, kubernetes-nodes-cadvisor - see write_relabel_configs in
+# k8s/observability/prometheus-configmap.yaml) - cadvisor in particular is much
+# higher-cardinality (per-container, per-node) than the single-job feed this was sized for.
+resources:
+  requests:
+    cpu: "500m"
+    memory: "1Gi"
+  limits:
+    cpu: "2"
+    memory: "2Gi"
+
+persistence:
+  enabled: true
+  size: 5Gi
+
+ingress:
+  enabled: true
+  className: "nginx"
+  annotations:
+    kubernetes.io/tls-acme: "false"
+  hosts:
+    - host: openobserve.localhost
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []

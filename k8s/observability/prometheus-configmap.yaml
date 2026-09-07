@@ -10,6 +10,36 @@ data:
     global:
       scrape_interval: 15s
 
+    # Replicates the message-service metrics (job "otel-collector" below - the API's
+    # Micrometer/JVM/HikariCP metrics pushed via OTLP, see application.properties) plus
+    # kind cluster ops metrics (node-exporter, kube-state-metrics - the same jobs behind
+    # the "kind cluster ops" Grafana dashboard) into OpenObserve (see
+    # k8s/observability/openobserve-values.yaml), which exposes a Prometheus
+    # remote_write-compatible ingestion endpoint. password_file is mounted from
+    # openobserve-prometheus-secret.yaml (see prometheus-deployment.yaml) so the password
+    # never has to live in this ConfigMap.
+    #
+    # write_relabel_configs keeps only these jobs: an earlier attempt at forwarding every
+    # scraped job (in particular kubernetes-nodes-cadvisor's per-container series) was
+    # high-cardinality enough to overflow OpenObserve's single-node in-memory MemTable -
+    # confirmed live: every write request failed with HTTP 400
+    # {"code":400,"message":"Error# MemoryTableOverflowError"} until this relabeling was
+    # added. node-exporter/kube-state-metrics are being added back in deliberately, one
+    # step at a time, verifying no overflow before adding kubernetes-nodes-cadvisor (by
+    # far the highest-cardinality job) on top - see openobserve-values.yaml's resources,
+    # bumped in the same step, and its 3-day ZO_COMPACT_DATA_RETENTION_DAYS (kind's
+    # default StorageClass doesn't enforce persistence.size as a real quota, so unbounded
+    # retention on wider data risks unbounded disk growth on the Docker Desktop VM).
+    remote_write:
+      - url: http://openobserve.observability.svc.cluster.local:5080/api/default/prometheus/api/v1/write
+        basic_auth:
+          username: root@example.com
+          password_file: /etc/prometheus/openobserve-auth/password
+        write_relabel_configs:
+          - source_labels: [job]
+            regex: 'otel-collector|node-exporter|kube-state-metrics|kubernetes-nodes-cadvisor'
+            action: keep
+
     scrape_configs:
       - job_name: 'otel-collector'
         static_configs:
@@ -18,6 +48,14 @@ data:
       - job_name: 'kube-state-metrics'
         static_configs:
           - targets: ['kube-state-metrics.observability.svc.cluster.local:8080']
+
+      # OpenObserve's own self-monitoring metrics (config.ZO_PROMETHEUS_ENABLED in
+      # k8s/observability/openobserve-values.yaml - off by default, confirmed live: with it
+      # off, /metrics returns HTTP 200 with an empty body). Feeds the "OpenObserve Ops"
+      # Grafana dashboard only - not remote_written back into OpenObserve itself.
+      - job_name: 'openobserve'
+        static_configs:
+          - targets: ['openobserve.observability.svc.cluster.local:5080']
 
       # postgres runs in the default namespace (see k8s/postgres-statefulset.yaml), not
       # observability; postgres-exporter is a sidecar in that same pod, reached via the postgres

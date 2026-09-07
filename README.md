@@ -13,7 +13,7 @@ actuator probes) is unchanged — only the persistence layer differs.
 - **API**: Spring Boot 4 / Java 21, `MessageController` -> `MessageService` -> `MessageMapper` (MyBatis).
 - **Persistence**: MyBatis 3 mapper (`src/main/resources/mapper/MessageMapper.xml`) against PostgreSQL 16.
   Schema is created on startup from `src/main/resources/schema.sql` (idempotent `CREATE TABLE IF NOT EXISTS`).
-- **Cluster topology** (`k8s/kind-config.yaml`): 1 control-plane + 5 workers.
+- **Cluster topology** (`k8s/kind-config.yaml`): 1 control-plane + 6 workers.
   - 2 workers labeled `workload=api` — the `message-service` Deployment (2 replicas) is pinned there
     via `nodeSelector`, with preferred pod anti-affinity so the two replicas spread across those nodes.
   - 1 worker labeled `workload=db` — the `postgres` StatefulSet (1 replica, with a `PersistentVolumeClaim`)
@@ -22,6 +22,8 @@ actuator probes) is unchanged — only the persistence layer differs.
     Deployments (see below) are pinned there via `nodeSelector`.
   - 1 worker labeled `workload=cache` — the `hazelcast` Deployment (see below) is pinned there
     via `nodeSelector`.
+  - 1 worker labeled `workload=openobserve` — the OpenObserve `StatefulSet` (see below) is pinned
+    there via `nodeSelector`.
 - **Lookup cache**: `MessageService.getMessageById` is `@Cacheable` (cache name `messages`), backed by
   a standalone [Hazelcast](https://github.com/hazelcast/hazelcast) member (`k8s/hazelcast-deployment.yaml`,
   `k8s/hazelcast-service.yaml`) that each `message-service` pod connects to as a **client**
@@ -56,6 +58,30 @@ actuator probes) is unchanged — only the persistence layer differs.
   `k8s/observability/ingress.yaml` at `http://grafana.localhost/` (default creds `admin`/`admin`,
   see `k8s/observability/grafana-secret.yaml`). `*.localhost` resolves to `127.0.0.1` on modern
   OSes/browsers without any `/etc/hosts` change.
+
+  **OpenObserve** (`openobserve/openobserve-standalone` Helm chart - single-node, not the HA chart;
+  installed by `deploy-kind.sh`, values in `k8s/observability/openobserve-values.yaml`) is a second,
+  independent observability backend, fed by Prometheus `remote_write`. It's exposed at
+  `http://openobserve.localhost/` (default creds `root@example.com`/`Complexpass#123`, see
+  `k8s/observability/openobserve-values.yaml` and `k8s/observability/openobserve-prometheus-secret.yaml`
+  - the latter is what Prometheus itself authenticates with, kept out of its ConfigMap on principle
+  even though this is all disposable local-kind-only). Query its data under the `default` org, stream
+  names matching the Prometheus metric names (e.g. `http_server_requests_milliseconds_count`,
+  `container_memory_working_set_bytes`).
+
+  `write_relabel_configs` in `k8s/observability/prometheus-configmap.yaml` deliberately keeps only
+  four scrape jobs - `otel-collector` (the message-service's own metrics), plus `node-exporter`,
+  `kube-state-metrics`, and `kubernetes-nodes-cadvisor` (the same three jobs behind the "kind cluster
+  ops" Grafana dashboard) - not every job Prometheus scrapes. An earlier attempt at forwarding
+  everything unfiltered overflowed OpenObserve's single-node in-memory MemTable (confirmed live:
+  every write failed with HTTP 400 `{"code":400,"message":"Error# MemoryTableOverflowError"}`) -
+  `kubernetes-nodes-cadvisor` in particular is a lot of series (per-container, per-node). The three ops
+  jobs were added back deliberately, one at a time verifying no overflow, alongside two changes to
+  absorb the extra volume: OpenObserve's `resources` were bumped (250m/512Mi req, 1/1Gi limit ->
+  500m/1Gi req, 2/2Gi limit), and its `config.ZO_COMPACT_DATA_RETENTION_DAYS` was dropped from the
+  chart's 3650-day default to `3` - kind's default StorageClass (`rancher.io/local-path`) doesn't
+  enforce `persistence.size` as a real quota, so unbounded retention on this much wider data would
+  otherwise risk unbounded disk growth on the Docker Desktop VM.
 
 ## Running the Application
 
@@ -143,11 +169,12 @@ PostgreSQL instance. Production and the kind deployment still use real PostgreSQ
 ## Deployment with Kind / Kubernetes
 
 - **Deploy to local Kind cluster**: `./deploy-kind.sh`
-  - Creates a 6-node kind cluster (1 control-plane, 2 API workers, 1 DB worker, 1 observability
-    worker, 1 cache worker) if it doesn't exist yet.
+  - Creates a 7-node kind cluster (1 control-plane, 2 API workers, 1 DB worker, 1 observability
+    worker, 1 cache worker, 1 OpenObserve worker) if it doesn't exist yet.
   - Installs the ingress-nginx controller and waits for it to become ready.
   - Builds the `message-service:latest` image and loads it into the cluster.
-  - Applies `k8s/observability/` (OTel Collector, Prometheus, Grafana - see Architecture above).
+  - Applies `k8s/observability/` (OTel Collector, Prometheus, Grafana - see Architecture above), then
+    installs OpenObserve via Helm (`openobserve/openobserve-standalone` - see Architecture above).
   - Applies `k8s/` via Kustomize: `Secret` + `ConfigMap`s, the `postgres` `StatefulSet`/headless
     `Service`, the `hazelcast` `Deployment`/`Service`, the `message-service` `Deployment`/`Service`
     (`ClusterIP`), and an `Ingress` routing to it.
@@ -246,7 +273,7 @@ time via `k8s/kind-config.yaml`. Adding one means recreating the cluster.
 `observability` namespace) and waits for it to roll out. Once deployed:
 
 - **Grafana**: `http://grafana.localhost/` — log in with `admin`/`admin` (same local-dev-only caveat
-  as `k8s/secret.yaml` applies to `k8s/observability/grafana-secret.yaml`) and open one of six
+  as `k8s/secret.yaml` applies to `k8s/observability/grafana-secret.yaml`) and open one of seven
   pre-provisioned dashboards, all in `k8s/observability/grafana-dashboard-json-configmap.yaml` as plain
   PromQL against real, verified metric names - if you add new panels, check the exact metric names
   Prometheus actually stores first (they differ from the raw OTLP names — see below):
@@ -269,6 +296,14 @@ time via `k8s/kind-config.yaml`. Adding one means recreating the cluster.
   - **Hazelcast Cache**: cluster size, connected clients, cache hit ratio/operation rate/latency
     for the `messages` map, member heap, GC time - see
     [Hazelcast Metrics (JMX exporter)](#hazelcast-metrics-jmx-exporter) below.
+  - **OpenObserve Ops**: self-monitoring for the OpenObserve backend itself (up/down, disk usage,
+    process RSS/CPU/open fds/uptime, HTTP request rate & p95/p99 latency by endpoint, ingest
+    rate/bytes by stream type, in-memory MemTable size, WAL bytes) - scraped from OpenObserve's own
+    `/metrics`, which is off by default (`config.ZO_PROMETHEUS_ENABLED` in
+    `k8s/observability/openobserve-values.yaml` - confirmed live: with it off, `/metrics` returns
+    HTTP 200 with an empty body). The MemTable Size panel is worth watching directly - that's the
+    exact thing that overflowed (see the "kind cluster ops" scope note above) before OpenObserve's
+    resources were bumped and remote_write was scoped down.
 - **Prometheus** (not exposed via Ingress; use `kubectl port-forward -n observability svc/prometheus 9090:9090`
   if you want its own UI at `http://localhost:9090`): scrapes `otel-collector.observability.svc.cluster.local:8889`
   (app metrics), `postgres.default.svc.cluster.local:9187` (postgres_exporter) and
@@ -276,6 +311,23 @@ time via `k8s/kind-config.yaml`. Adding one means recreating the cluster.
   for both - plus `kube-state-metrics` and every `node-exporter` pod, and every node's kubelet
   cAdvisor endpoint via the API server proxy (see `k8s/observability/prometheus-configmap.yaml` and
   `prometheus-rbac.yaml`) for the cluster-ops dashboard.
+- **OpenObserve**: `http://openobserve.localhost/` — log in with `root@example.com`/`Complexpass#123`
+  (same local-dev-only caveat, see `k8s/observability/openobserve-values.yaml`). It receives the
+  message-service's own metrics plus kind cluster ops metrics (Prometheus `remote_write`s the
+  `otel-collector`, `node-exporter`, `kube-state-metrics`, and `kubernetes-nodes-cadvisor` jobs into it
+  — see `write_relabel_configs` in `k8s/observability/prometheus-configmap.yaml`; every other scraped
+  job is deliberately dropped before it reaches OpenObserve), under org `default`, one stream per
+  Prometheus metric name (e.g. `http_server_requests_milliseconds_count`,
+  `container_memory_working_set_bytes`, `node_memory_MemAvailable_bytes`). Query it from the UI's
+  Logs/Metrics explorer, or via its search API:
+  ```bash
+  NOW_US=$(( $(date +%s) * 1000000 )); START_US=$(( NOW_US - 3600*1000000 ))
+  curl -s -u 'root@example.com:Complexpass#123' -X POST 'http://openobserve.localhost/api/default/_search?type=metrics' \
+    -H 'Content-Type: application/json' \
+    -d "{\"query\":{\"sql\":\"SELECT * FROM \\\"http_server_requests_milliseconds_count\\\" ORDER BY _timestamp DESC LIMIT 5\",\"start_time\":$START_US,\"end_time\":$NOW_US,\"size\":5}}"
+  ```
+  (`start_time`/`end_time` are epoch microseconds; OpenObserve rejects a query whose range doesn't
+  look like one, e.g. `0`.)
 - **OTel Collector** (`k8s/observability/otel-collector-configmap.yaml`): receives OTLP metrics on
   `:4317` (gRPC) / `:4318` (HTTP) from every `message-service` pod
   (`OTEL_METRICS_URL` in `k8s/configmap.yaml` points at it) and re-exports them in Prometheus format

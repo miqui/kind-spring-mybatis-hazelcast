@@ -6,6 +6,191 @@ metadata:
   labels:
     app: grafana
 data:
+  openobserve-ops.json: |
+    {
+      "title": "OpenObserve Ops",
+      "uid": "openobserve-ops",
+      "timezone": "browser",
+      "schemaVersion": 39,
+      "refresh": "10s",
+      "time": { "from": "now-30m", "to": "now" },
+      "panels": [
+        {
+          "id": 1,
+          "title": "OpenObserve Up",
+          "type": "stat",
+          "gridPos": { "h": 4, "w": 4, "x": 0, "y": 0 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "targets": [
+            { "expr": "up{job=\"openobserve\"}", "refId": "A" }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "mappings": [
+                { "type": "value", "options": { "0": { "text": "DOWN", "color": "red" }, "1": { "text": "UP", "color": "green" } } }
+              ]
+            }
+          }
+        },
+        {
+          "id": 2,
+          "title": "Disk Usage",
+          "type": "gauge",
+          "gridPos": { "h": 4, "w": 4, "x": 4, "y": 0 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percent", "min": 0, "max": 100,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "green", "value": null },
+                  { "color": "yellow", "value": 70 },
+                  { "color": "red", "value": 85 }
+                ]
+              }
+            }
+          },
+          "targets": [
+            { "expr": "zo_node_disk_usage{job=\"openobserve\"} / zo_node_disk_total{job=\"openobserve\"} * 100", "refId": "A" }
+          ]
+        },
+        {
+          "id": 3,
+          "title": "Process Memory (RSS)",
+          "type": "stat",
+          "gridPos": { "h": 4, "w": 4, "x": 8, "y": 0 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": { "defaults": { "unit": "bytes" } },
+          "targets": [
+            { "expr": "process_resident_memory_bytes{job=\"openobserve\"}", "refId": "A" }
+          ]
+        },
+        {
+          "id": 4,
+          "title": "Open File Descriptors",
+          "type": "stat",
+          "gridPos": { "h": 4, "w": 4, "x": 12, "y": 0 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "targets": [
+            { "expr": "process_open_fds{job=\"openobserve\"}", "refId": "A" }
+          ]
+        },
+        {
+          "id": 5,
+          "title": "Uptime",
+          "type": "stat",
+          "gridPos": { "h": 4, "w": 4, "x": 16, "y": 0 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": { "defaults": { "unit": "s" } },
+          "targets": [
+            { "expr": "time() - process_start_time_seconds{job=\"openobserve\"}", "refId": "A" }
+          ]
+        },
+        {
+          "id": 6,
+          "title": "Ingest Rate (records/s)",
+          "type": "stat",
+          "gridPos": { "h": 4, "w": 4, "x": 20, "y": 0 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": { "defaults": { "unit": "ops" } },
+          "targets": [
+            { "expr": "sum(rate(zo_ingest_records{job=\"openobserve\"}[5m]))", "refId": "A" }
+          ]
+        },
+        {
+          "id": 7,
+          "title": "HTTP Request Rate by Endpoint",
+          "type": "timeseries",
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": { "defaults": { "unit": "ops" } },
+          "targets": [
+            { "expr": "sum(rate(zo_http_incoming_requests{job=\"openobserve\"}[5m])) by (endpoint, status)", "legendFormat": "{{endpoint}} ({{status}})", "refId": "A" }
+          ]
+        },
+        {
+          "id": 8,
+          "title": "HTTP Response Time p95/p99 by Endpoint",
+          "type": "timeseries",
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": { "defaults": { "unit": "s" } },
+          "targets": [
+            { "expr": "histogram_quantile(0.95, sum(rate(zo_http_response_time_bucket{job=\"openobserve\"}[5m])) by (le, endpoint))", "legendFormat": "p95 {{endpoint}}", "refId": "A" },
+            { "expr": "histogram_quantile(0.99, sum(rate(zo_http_response_time_bucket{job=\"openobserve\"}[5m])) by (le, endpoint))", "legendFormat": "p99 {{endpoint}}", "refId": "B" }
+          ]
+        },
+        {
+          "id": 9,
+          "title": "Ingest Rate by Stream Type (records/s)",
+          "type": "timeseries",
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 12 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": { "defaults": { "unit": "ops" } },
+          "targets": [
+            { "expr": "sum(rate(zo_ingest_records{job=\"openobserve\"}[5m])) by (stream_type)", "legendFormat": "{{stream_type}}", "refId": "A" }
+          ]
+        },
+        {
+          "id": 10,
+          "title": "Ingest Rate by Stream Type (bytes/s)",
+          "type": "timeseries",
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 12 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": { "defaults": { "unit": "Bps" } },
+          "targets": [
+            { "expr": "sum(rate(zo_ingest_bytes{job=\"openobserve\"}[5m])) by (stream_type)", "legendFormat": "{{stream_type}}", "refId": "A" }
+          ]
+        },
+        {
+          "id": 11,
+          "title": "In-Memory MemTable Size",
+          "type": "timeseries",
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 20 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": { "defaults": { "unit": "bytes" } },
+          "description": "Watch this against OpenObserve's memory limit (see k8s/observability/openobserve-values.yaml resources.limits.memory) - this is what overflowed (HTTP 400 MemoryTableOverflowError) before remote_write was scoped down / OpenObserve's resources were bumped.",
+          "targets": [
+            { "expr": "zo_ingest_memtable_bytes{job=\"openobserve\"}", "legendFormat": "memtable", "refId": "A" }
+          ]
+        },
+        {
+          "id": 12,
+          "title": "WAL Used Bytes by Stream Type",
+          "type": "timeseries",
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 20 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": { "defaults": { "unit": "bytes" } },
+          "targets": [
+            { "expr": "sum(zo_ingest_wal_used_bytes{job=\"openobserve\"}) by (stream_type)", "legendFormat": "{{stream_type}}", "refId": "A" }
+          ]
+        },
+        {
+          "id": 13,
+          "title": "Process CPU Usage",
+          "type": "timeseries",
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 28 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": { "defaults": { "unit": "percent" } },
+          "targets": [
+            { "expr": "rate(process_cpu_seconds_total{job=\"openobserve\"}[5m]) * 100", "legendFormat": "cpu", "refId": "A" }
+          ]
+        },
+        {
+          "id": 14,
+          "title": "Disk Usage vs Total",
+          "type": "timeseries",
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 28 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": { "defaults": { "unit": "bytes" } },
+          "targets": [
+            { "expr": "zo_node_disk_usage{job=\"openobserve\"}", "legendFormat": "used", "refId": "A" },
+            { "expr": "zo_node_disk_total{job=\"openobserve\"}", "legendFormat": "total", "refId": "B" }
+          ]
+        }
+      ]
+    }
   message-service.json: |
     {
       "title": "message-service",

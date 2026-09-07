@@ -1,7 +1,7 @@
-# kind 6-node cluster configuration:
+# kind 7-node cluster configuration:
 # 1 control-plane, 2 workers dedicated to the API, 1 worker dedicated to PostgreSQL,
 # 1 worker dedicated to the observability stack (OTel Collector, Prometheus, Grafana),
-# 1 worker dedicated to Hazelcast (lookup cache)
+# 1 worker dedicated to Hazelcast (lookup cache), 1 worker dedicated to OpenObserve
 #
 # The control-plane is labeled ingress-ready=true and maps host ports 80/443 so the
 # ingress-nginx controller (installed by deploy-kind.sh) can bind them directly -
@@ -68,3 +68,10 @@ nodes:
         nodeRegistration:
           kubeletExtraArgs:
             node-labels: "workload=cache"
+  - role: worker
+    kubeadmConfigPatches:
+      - |
+        kind: JoinConfiguration
+        nodeRegistration:
+          kubeletExtraArgs:
+            node-labels: "workload=openobserve"

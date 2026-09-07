@@ -30,6 +30,9 @@ spec:
           volumeMounts:
             - name: config
               mountPath: /etc/prometheus
+            - name: openobserve-auth
+              mountPath: /etc/prometheus/openobserve-auth
+              readOnly: true
           resources:
             requests:
               cpu: "100m"
@@ -43,13 +46,20 @@ spec:
               port: 9090
             initialDelaySeconds: 5
             periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
           livenessProbe:
             httpGet:
               path: /-/healthy
               port: 9090
             initialDelaySeconds: 10
             periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
       volumes:
         - name: config
           configMap:
             name: prometheus-config
+        - name: openobserve-auth
+          secret:
+            secretName: openobserve-remote-write-credentials

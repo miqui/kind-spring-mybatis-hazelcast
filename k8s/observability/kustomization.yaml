@@ -7,6 +7,7 @@ resources:
   - otel-collector-deployment.yaml
   - otel-collector-service.yaml
   - prometheus-rbac.yaml
+  - openobserve-prometheus-secret.yaml
   - prometheus-configmap.yaml
   - prometheus-deployment.yaml
   - prometheus-service.yaml
