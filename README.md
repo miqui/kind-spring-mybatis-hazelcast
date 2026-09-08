@@ -168,6 +168,27 @@ PostgreSQL instance. Production and the kind deployment still use real PostgreSQ
 
 ## Deployment with Kind / Kubernetes
 
+### Prerequisite: 1Password CLI (secrets)
+
+Credentials (PostgreSQL, Grafana admin, OpenObserve root user) are pulled from 1Password rather than
+committed in plaintext. Before deploying:
+
+1. Install the [1Password CLI](https://developer.1password.com/docs/cli/get-started/) (`op`) and sign in
+   (`op signin`, or have the 1Password desktop app's CLI integration enabled).
+2. Ensure a `dev-vault` vault exists in your account with three Login items, each holding `username`
+   and `password` fields:
+   - `k8s-postgres`
+   - `k8s-grafana`
+   - `k8s-openobserve`
+3. Copy `.env.example` to `.env` (already `op://dev-vault/...` references, not real secrets - safe to
+   keep local/untracked) and adjust the vault/item/field names if yours differ.
+4. Run any script that needs these values through `op run`, e.g.:
+   ```bash
+   op run --env-file=.env -- ./deploy-kind.sh
+   ```
+   `op run` resolves each `op://` reference to the live secret value for the duration of that one
+   command only - nothing is written to disk or your shell's persistent environment.
+
 - **Deploy to local Kind cluster**: `./deploy-kind.sh`
   - Creates a 7-node kind cluster (1 control-plane, 2 API workers, 1 DB worker, 1 observability
     worker, 1 cache worker, 1 OpenObserve worker) if it doesn't exist yet.

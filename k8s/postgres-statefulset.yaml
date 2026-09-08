@@ -40,6 +40,19 @@ spec:
           env:
             - name: PGDATA
               value: /var/lib/postgresql/data/pgdata
+            # Explicit env entries (not just envFrom) so the probes' $(DB_USER)/$(POSTGRES_DB)
+            # command-expansion below can resolve them - Kubernetes only expands $(VAR) references
+            # against a container's own env: list, not vars injected via envFrom.
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-credentials
+                  key: DB_USER
+            - name: POSTGRES_DB
+              valueFrom:
+                configMapKeyRef:
+                  name: postgres-config
+                  key: POSTGRES_DB
           volumeMounts:
             - name: postgres-data
               mountPath: /var/lib/postgresql/data

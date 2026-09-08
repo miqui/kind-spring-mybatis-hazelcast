@@ -35,3 +35,6 @@ build/
 
 ### VS Code ###
 .vscode/
+
+### Local env (1Password op:// references) ###
+.env
