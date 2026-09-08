@@ -7,6 +7,10 @@
 # ingress-nginx controller (installed by deploy-kind.sh) can bind them directly -
 # see https://kind.sigs.k8s.io/docs/user/ingress/. There is no NodePort/hostPort
 # mapping onto the app itself; all external traffic comes in through the Ingress.
+#
+# Host port 8080 -> container port 31080 is a separate mapping for NGINX Gateway
+# Fabric's NodePort Service (see deploy-kind.sh), piloting Gateway API for Grafana's
+# route without touching the ingress-nginx path above.
 kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
 nodes:
@@ -24,6 +28,10 @@ nodes:
         protocol: TCP
       - containerPort: 443
         hostPort: 443
+        listenAddress: "127.0.0.1"
+        protocol: TCP
+      - containerPort: 31080
+        hostPort: 8080
         listenAddress: "127.0.0.1"
         protocol: TCP
   - role: worker

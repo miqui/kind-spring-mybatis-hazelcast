@@ -1,0 +1,16 @@
+# Piloting Gateway API (replacing ingress-nginx, EOL as of 2026-03-24) for Grafana's
+# route only - message-service and OpenObserve stay on ingress-nginx for now. Served by
+# NGINX Gateway Fabric (installed by deploy-kind.sh), reachable on host port 8080 via
+# the NodePort mapping in k8s/kind-config.yaml.
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: observability-gateway
+  namespace: observability
+spec:
+  gatewayClassName: nginx
+  listeners:
+    - name: http
+      port: 80
+      protocol: HTTP
+      hostname: grafana.localhost

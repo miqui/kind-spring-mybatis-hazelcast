@@ -21,4 +21,5 @@ resources:
   - grafana-dashboard-json-configmap.yaml
   - grafana-deployment.yaml
   - grafana-service.yaml
-  - ingress.yaml
+  - gateway.yaml
+  - grafana-httproute.yaml

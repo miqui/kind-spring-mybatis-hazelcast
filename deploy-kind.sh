@@ -35,6 +35,36 @@ kubectl wait --namespace ingress-nginx \
   --selector=app.kubernetes.io/component=controller \
   --timeout=120s
 
+# 3a. Install Gateway API CRDs + NGINX Gateway Fabric (NGF). Pilot: Grafana's route only
+#     (k8s/observability/gateway.yaml, grafana-httproute.yaml) runs through NGF, reachable
+#     on host port 8080 via the NodePort mapping in kind-config.yaml. message-service and
+#     OpenObserve stay on ingress-nginx above - see PR description for the ingress-nginx
+#     EOL context (retired 2026-03-24) driving this pilot.
+echo "=> Installing Gateway API CRDs (standard channel v1.6.1)..."
+kubectl apply --server-side -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.6.1/standard-install.yaml
+
+echo "=> Installing NGINX Gateway Fabric..."
+# externalTrafficPolicy=Cluster (chart default is Local): the extraPortMappings entry in
+# kind-config.yaml only lands on the control-plane node's container, but the NGF data-plane
+# pod can schedule onto any node - Local would drop traffic whenever it lands elsewhere.
+# ingress-nginx above avoids this entirely via hostNetwork+nodeSelector on ingress-ready;
+# NGF has no such pinning here, so Cluster (extra hop, doesn't preserve client source IP)
+# is the simple fix for a local pilot.
+helm upgrade --install ngf oci://ghcr.io/nginx/charts/nginx-gateway-fabric \
+  --version 2.6.7 \
+  --create-namespace \
+  --namespace nginx-gateway \
+  --set nginx.service.type=NodePort \
+  --set "nginx.service.nodePorts[0].port=31080" \
+  --set "nginx.service.nodePorts[0].listenerPort=80" \
+  --set nginx.service.externalTrafficPolicy=Cluster \
+  --wait --timeout 120s
+echo "=> Waiting for NGINX Gateway Fabric to be ready..."
+kubectl wait --namespace nginx-gateway \
+  --for=condition=ready pod \
+  --selector=app.kubernetes.io/name=nginx-gateway-fabric \
+  --timeout=120s
+
 # 4. Build Docker image
 echo "=> Building Docker image '${IMAGE_NAME}'..."
 docker build -t "${IMAGE_NAME}" .
@@ -106,6 +136,6 @@ echo ""
 echo "=========================================================="
 echo " Service is accessible at: http://localhost/api/messages"
 echo " Actuator Health:          http://localhost/actuator/health"
-echo " Grafana:                  http://grafana.localhost/ (credentials from 1Password / Secret)"
+echo " Grafana (Gateway API):    http://grafana.localhost:8080/ (credentials from 1Password / Secret)"
 echo " OpenObserve:              http://openobserve.localhost/ (credentials from 1Password / Secret)"
 echo "=========================================================="
